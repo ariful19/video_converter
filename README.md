@@ -27,3 +27,8 @@ flutter run
 - `flutter analyze` passed
 - `flutter test` passed
 - `flutter build apk --debug` succeeded (`build\app\outputs\flutter-apk\app-debug.apk`)
+
+## CI/CD
+
+- **CI** (`.github/workflows/ci.yml`): runs on push/PR to `main` and executes format check, analyze, test, and debug APK build.
+- **CD** (`.github/workflows/cd.yml`): runs on tag push (`v*`) or manual dispatch, builds release APK, uploads artifact, and creates a GitHub Release for tags.
