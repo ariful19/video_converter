@@ -5,6 +5,7 @@ import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit_config.dart';
 import 'package:ffmpeg_kit_flutter_new_min_gpl/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_min_gpl/return_code.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 typedef ProgressCallback = void Function(double progress);
@@ -181,9 +182,37 @@ class VideoConverterService {
     required _TargetBitrates bitrates,
     required int crf,
   }) async {
+    final command = buildConversionCommand(
+      inputPath: inputPath,
+      outputPath: outputPath,
+      targetWidth: targetDimensions.width,
+      targetHeight: targetDimensions.height,
+      videoKbps: bitrates.videoKbps,
+      audioKbps: bitrates.audioKbps,
+      crf: crf,
+    );
+
+    final session = await FFmpegKit.execute(command);
+    final returnCode = await session.getReturnCode();
+    if (!ReturnCode.isSuccess(returnCode)) {
+      final output = await session.getOutput();
+      throw Exception(output ?? 'Video conversion did not complete.');
+    }
+  }
+
+  @visibleForTesting
+  String buildConversionCommand({
+    required String inputPath,
+    required String outputPath,
+    required int targetWidth,
+    required int targetHeight,
+    required int videoKbps,
+    required int audioKbps,
+    required int crf,
+  }) {
     final videoFilter =
-        'scale=w=${targetDimensions.width}:h=${targetDimensions.height}:force_original_aspect_ratio=decrease';
-    final command = [
+        'scale=w=$targetWidth:h=$targetHeight:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1';
+    return [
       '-y',
       '-i',
       _quote(inputPath),
@@ -196,28 +225,21 @@ class VideoConverterService {
       '-crf',
       '$crf',
       '-b:v',
-      '${bitrates.videoKbps}k',
+      '${videoKbps}k',
       '-maxrate',
-      '${(bitrates.videoKbps * 1.22).round()}k',
+      '${(videoKbps * 1.22).round()}k',
       '-bufsize',
-      '${(bitrates.videoKbps * 2).round()}k',
+      '${(videoKbps * 2).round()}k',
       '-pix_fmt',
       'yuv420p',
       '-c:a',
       'aac',
       '-b:a',
-      '${bitrates.audioKbps}k',
+      '${audioKbps}k',
       '-movflags',
       '+faststart',
       _quote(outputPath),
     ].join(' ');
-
-    final session = await FFmpegKit.execute(command);
-    final returnCode = await session.getReturnCode();
-    if (!ReturnCode.isSuccess(returnCode)) {
-      final output = await session.getOutput();
-      throw Exception(output ?? 'Video conversion did not complete.');
-    }
   }
 
   String _buildOutputPath(String inputPath, ResolutionPreset preset) {
