@@ -40,7 +40,7 @@ class _VideoConverterHomePageState extends State<VideoConverterHomePage> {
   static const MethodChannel _platformChannel =
       MethodChannel('video_converter/platform');
   final ScreenAwakeController _screenAwakeController =
-      const ScreenAwakeController(channel: _platformChannel);
+      ScreenAwakeController(channel: _platformChannel);
 
   String? _selectedFilePath;
   String? _selectedDisplayName;
