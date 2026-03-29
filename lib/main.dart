@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
+import 'src/screen_awake_controller.dart';
 import 'src/video_converter_service.dart';
 
 void main() {
@@ -38,6 +39,8 @@ class _VideoConverterHomePageState extends State<VideoConverterHomePage> {
   final VideoConverterService _service = VideoConverterService();
   static const MethodChannel _platformChannel =
       MethodChannel('video_converter/platform');
+  final ScreenAwakeController _screenAwakeController =
+      const ScreenAwakeController(channel: _platformChannel);
 
   String? _selectedFilePath;
   String? _selectedDisplayName;
@@ -152,24 +155,26 @@ class _VideoConverterHomePageState extends State<VideoConverterHomePage> {
     });
 
     try {
-      final tempResult = await _service.convertVideo(
-        inputPath: inputPath,
-        metadata: metadata,
-        preset: _preset,
-        onProgress: (progress) {
-          if (!mounted) {
-            return;
-          }
-          setState(() {
-            _progress = progress;
-          });
-        },
-      );
-      final savedResult = await _saveConvertedVideoToSourceFolder(
-        tempResult,
-        relativePath: relativePath,
-        outputTreeUri: outputTreeUri,
-      );
+      final savedResult = await _screenAwakeController.whileAwake(() async {
+        final tempResult = await _service.convertVideo(
+          inputPath: inputPath,
+          metadata: metadata,
+          preset: _preset,
+          onProgress: (progress) {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _progress = progress;
+            });
+          },
+        );
+        return _saveConvertedVideoToSourceFolder(
+          tempResult,
+          relativePath: relativePath,
+          outputTreeUri: outputTreeUri,
+        );
+      });
       if (!mounted) {
         return;
       }

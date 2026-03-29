@@ -9,6 +9,7 @@ import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.view.WindowManager
 import androidx.documentfile.provider.DocumentFile
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -36,9 +37,22 @@ class MainActivity : FlutterActivity() {
                     "pickVideoWithContext" -> launchVideoPicker(result)
                     "ensureOutputFolderAccess" -> ensureOutputFolderAccess(result)
                     "saveOutputToSourceFolder" -> saveOutputToSourceFolder(call, result)
+                    "setKeepScreenOn" -> setKeepScreenOn(call, result)
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun setKeepScreenOn(call: MethodCall, result: MethodChannel.Result) {
+        val shouldKeepScreenOn = call.arguments as? Boolean ?: false
+        runOnUiThread {
+            if (shouldKeepScreenOn) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+            result.success(null)
+        }
     }
 
     private fun launchVideoPicker(result: MethodChannel.Result) {
