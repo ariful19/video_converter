@@ -19,6 +19,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import kotlin.concurrent.thread
 
 class MainActivity : FlutterActivity() {
     private val channelName = "video_converter/platform"
@@ -136,18 +137,28 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        try {
-            val sourceContext = querySourceContext(uri)
-            val inputPath = copyUriToCache(uri, sourceContext.displayName)
-            result.success(
-                mapOf(
-                    "inputPath" to inputPath,
-                    "displayName" to sourceContext.displayName,
-                    "relativePath" to sourceContext.relativePath,
-                ),
-            )
-        } catch (error: Exception) {
-            result.error("pick_failed", error.message, null)
+        thread(name = "video-picker-copy") {
+            try {
+                val sourceContext = querySourceContext(uri)
+                val inputPath = copyUriToCache(uri, sourceContext.displayName)
+                runOnUiThread {
+                    result.success(
+                        mapOf(
+                            "inputPath" to inputPath,
+                            "displayName" to sourceContext.displayName,
+                            "relativePath" to sourceContext.relativePath,
+                        ),
+                    )
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    result.error(
+                        "pick_failed",
+                        error.message ?: "Could not prepare the selected video.",
+                        null,
+                    )
+                }
+            }
         }
     }
 
@@ -355,12 +366,17 @@ class MainActivity : FlutterActivity() {
     private fun copyUriToCache(uri: Uri, displayName: String): String {
         val safeName = sanitizeFileName(displayName)
         val cacheFile = File(cacheDir, "picked_${System.currentTimeMillis()}_$safeName")
-        contentResolver.openInputStream(uri)?.use { inputStream ->
-            FileOutputStream(cacheFile).use { outputStream ->
-                inputStream.copyTo(outputStream)
-            }
-        } ?: throw IOException("Failed to open selected video stream.")
-        return cacheFile.absolutePath
+        try {
+            contentResolver.openInputStream(uri)?.use { inputStream ->
+                FileOutputStream(cacheFile).use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            } ?: throw IOException("Failed to open selected video stream.")
+            return cacheFile.absolutePath
+        } catch (error: Exception) {
+            cacheFile.delete()
+            throw error
+        }
     }
 
     private fun sanitizeFileName(value: String): String {
