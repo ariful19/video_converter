@@ -6,6 +6,8 @@ import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
@@ -19,7 +21,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
-import kotlin.concurrent.thread
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class MainActivity : FlutterActivity() {
     private val channelName = "video_converter/platform"
@@ -27,6 +30,8 @@ class MainActivity : FlutterActivity() {
     private val pickFolderRequestCode = 4118
     private val preferencesName = "video_converter_preferences"
     private val outputTreeUriKey = "output_tree_uri"
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val pickerExecutor = Executors.newSingleThreadExecutor()
     private var pendingPickResult: MethodChannel.Result? = null
     private var pendingFolderResult: MethodChannel.Result? = null
 
@@ -137,11 +142,11 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        thread(name = "video-picker-copy") {
+        pickerExecutor.execute {
             try {
                 val sourceContext = querySourceContext(uri)
                 val inputPath = copyUriToCache(uri, sourceContext.displayName)
-                runOnUiThread {
+                postPickResult {
                     result.success(
                         mapOf(
                             "inputPath" to inputPath,
@@ -151,10 +156,11 @@ class MainActivity : FlutterActivity() {
                     )
                 }
             } catch (error: Exception) {
-                runOnUiThread {
+                postPickResult {
                     result.error(
                         "pick_failed",
-                        error.message ?: "Could not prepare the selected video.",
+                        error.message
+                            ?: "Failed to copy the selected video. Please check file permissions and available storage.",
                         null,
                     )
                 }
@@ -426,6 +432,32 @@ class MainActivity : FlutterActivity() {
             null
         }
     }
+
+    private fun postPickResult(action: () -> Unit) {
+        if (isFinishing || isDestroyed) {
+            return
+        }
+        mainHandler.post {
+            if (isFinishing || isDestroyed) {
+                return@post
+            }
+            action()
+        }
+    }
+
+    override fun onDestroy() {
+        pickerExecutor.shutdown()
+        try {
+            if (!pickerExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
+                pickerExecutor.shutdownNow()
+            }
+        } catch (_: InterruptedException) {
+            pickerExecutor.shutdownNow()
+            Thread.currentThread().interrupt()
+        }
+        super.onDestroy()
+    }
+
 }
 
 data class SourceContext(
