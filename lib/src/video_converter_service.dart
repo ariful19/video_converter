@@ -5,6 +5,7 @@ import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit_config.dart';
 import 'package:ffmpeg_kit_flutter_new_min_gpl/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_min_gpl/return_code.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 typedef ProgressCallback = void Function(double progress);
@@ -79,11 +80,16 @@ class VideoConverterService {
     final videoStream = _findStream(streams, 'video');
     final audioStream = _findStream(streams, 'audio');
 
-    final width = _parseInt(videoStream['width']);
-    final height = _parseInt(videoStream['height']);
-    if (width <= 0 || height <= 0) {
+    final encodedWidth = _parseInt(videoStream['width']);
+    final encodedHeight = _parseInt(videoStream['height']);
+    if (encodedWidth <= 0 || encodedHeight <= 0) {
       throw Exception('Could not detect video resolution.');
     }
+    final displayDimensions = resolveDisplayDimensions(
+      encodedWidth: encodedWidth,
+      encodedHeight: encodedHeight,
+      rotationDegrees: _resolveRotationDegrees(videoStream),
+    );
 
     final durationSeconds = _parseDouble(format['duration']);
     final duration = Duration(
@@ -98,8 +104,8 @@ class VideoConverterService {
     final audioBitrate = _resolveAudioBitrate(audioStream);
 
     return VideoMetadata(
-      width: width,
-      height: height,
+      width: displayDimensions.width,
+      height: displayDimensions.height,
       duration: duration,
       fileSizeBytes: fileSizeBytes,
       videoBitrate: videoBitrate,
@@ -181,8 +187,10 @@ class VideoConverterService {
     required _TargetBitrates bitrates,
     required int crf,
   }) async {
-    final videoFilter =
-        'scale=w=${targetDimensions.width}:h=${targetDimensions.height}:force_original_aspect_ratio=decrease';
+    final videoFilter = buildScaleFilter(
+      maxWidth: targetDimensions.width,
+      maxHeight: targetDimensions.height,
+    );
     final command = [
       '-y',
       '-i',
@@ -236,20 +244,14 @@ class VideoConverterService {
     required int inputHeight,
     required int targetPixels,
   }) {
-    if (inputWidth >= inputHeight) {
-      final targetHeight = math.min(targetPixels, inputHeight);
-      final targetWidth = (inputWidth * targetHeight / inputHeight).round();
-      return _TargetDimensions(
-        width: _ensureEven(targetWidth),
-        height: _ensureEven(targetHeight),
-      );
-    }
-
-    final targetWidth = math.min(targetPixels, inputWidth);
-    final targetHeight = (inputHeight * targetWidth / inputWidth).round();
+    final targetDimensions = calculateTargetDimensionsForDisplay(
+      inputWidth: inputWidth,
+      inputHeight: inputHeight,
+      targetPixels: targetPixels,
+    );
     return _TargetDimensions(
-      width: _ensureEven(targetWidth),
-      height: _ensureEven(targetHeight),
+      width: targetDimensions.width,
+      height: targetDimensions.height,
     );
   }
 
@@ -321,6 +323,51 @@ class _TargetDimensions {
 
   final int width;
   final int height;
+}
+
+@visibleForTesting
+({int width, int height}) resolveDisplayDimensions({
+  required int encodedWidth,
+  required int encodedHeight,
+  required int rotationDegrees,
+}) {
+  final normalizedRotation = ((rotationDegrees % 360) + 360) % 360;
+  final isQuarterTurn = normalizedRotation == 90 || normalizedRotation == 270;
+  return (
+    width: isQuarterTurn ? encodedHeight : encodedWidth,
+    height: isQuarterTurn ? encodedWidth : encodedHeight,
+  );
+}
+
+@visibleForTesting
+({int width, int height}) calculateTargetDimensionsForDisplay({
+  required int inputWidth,
+  required int inputHeight,
+  required int targetPixels,
+}) {
+  if (inputWidth >= inputHeight) {
+    final targetHeight = math.min(targetPixels, inputHeight);
+    final targetWidth = (inputWidth * targetHeight / inputHeight).round();
+    return (
+      width: _ensureEven(targetWidth),
+      height: _ensureEven(targetHeight),
+    );
+  }
+
+  final targetWidth = math.min(targetPixels, inputWidth);
+  final targetHeight = (inputHeight * targetWidth / inputWidth).round();
+  return (
+    width: _ensureEven(targetWidth),
+    height: _ensureEven(targetHeight),
+  );
+}
+
+@visibleForTesting
+String buildScaleFilter({
+  required int maxWidth,
+  required int maxHeight,
+}) {
+  return 'scale=w=$maxWidth:h=$maxHeight:force_original_aspect_ratio=decrease:force_divisible_by=2';
 }
 
 class _TargetBitrates {
@@ -410,6 +457,24 @@ int _resolveAudioBitrate(Map<String, dynamic> audioStream) {
     return streamBitrate;
   }
   return 128000;
+}
+
+int _resolveRotationDegrees(Map<String, dynamic> videoStream) {
+  final tags = _toMap(videoStream['tags']);
+  final tagRotation = _parseInt(tags['rotate']);
+  if (tagRotation != 0) {
+    return tagRotation;
+  }
+
+  for (final sideData in _toList(videoStream['side_data_list'])) {
+    final sideDataMap = _toMap(sideData);
+    final sideDataRotation = _parseInt(sideDataMap['rotation']);
+    if (sideDataRotation != 0) {
+      return sideDataRotation;
+    }
+  }
+
+  return 0;
 }
 
 int _ensureEven(int value) {
